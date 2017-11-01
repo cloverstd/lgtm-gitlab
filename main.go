@@ -27,6 +27,7 @@ var (
 	ErrInvalidContentType = errors.New("invalid content type")
 	// RespOK ...
 	RespOK       = []byte("OK")
+	allowedUsers = []string {"julio.junior", "lucas.andrade", "isabelly.cavalcante", "eric.breno", "estacio.pereira"}
 	db           *bolt.DB
 	buildVersion string
 )
@@ -46,7 +47,7 @@ const (
 var (
 	privateToken   = flag.String("token", "", "gitlab private token which used to accept merge request. can be found in https://your.gitlab.com/profile/account")
 	gitlabURL      = flag.String("gitlab_url", "", "e.g. https://your.gitlab.com")
-	validLGTMCount = flag.Int("lgtm_count", 2, "lgtm user count")
+	validLGTMCount = flag.Int("lgtm_count", 1, "lgtm user count")
 	lgtmNote       = flag.String("lgtm_note", NoteLGTM, "lgtm note")
 	logLevel       = flag.String("log_level", "info", "log level")
 	port           = flag.Int("port", 8989, "http listen port")
@@ -88,6 +89,9 @@ func main() {
 	}
 	if *gitlabURL == "" {
 		logrus.Fatal("gitlab url is required")
+	}
+	if allowedUsers == nil {
+		logrus.Fatal("Allowed reviewers is required")
 	}
 	var err error
 	db, err = bolt.Open(*dbPath, 0600, nil)
@@ -155,6 +159,12 @@ func LGTMHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func checkLgtm(comment Comment) error {
+
+	if !checkAllowedUsers(comment) {
+		// unmatched, do nothing
+		logrus.Info("User ", comment.User.Username, " is not allowed to do LGTM")
+		return nil
+	}
 	if comment.ObjectKind != ObjectNote {
 		// unmatched, do nothing
 		return nil
@@ -169,7 +179,6 @@ func checkLgtm(comment Comment) error {
 		// unmatched, do nothing
 		return nil
 	}
-
 	// TODO: 检查评论LGTM的两个人 是不同的人
 	var (
 		canbeMerged bool
@@ -198,8 +207,16 @@ func checkLgtm(comment Comment) error {
 		}).Info("The MR can not be merged.")
 
 	}
-
 	return nil
+}
+
+func checkAllowedUsers(comment Comment) bool {
+	for i := range allowedUsers {
+		if allowedUsers[i] == comment.User.Username {
+			return true
+		}
+	}
+	return false
 }
 
 func checkLGTMCount(comment Comment) (bool, error) {
