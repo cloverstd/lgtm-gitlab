@@ -2,15 +2,19 @@
 
 lgtm-gitlab is used to auto merge gitlab CE MR with your LGTM like [gitlab EE approve](https://about.gitlab.com/2015/06/16/feature-highlight-approve-merge-request/)
 
-# usage
+# Usage
 
-## access token
+## Access token
 
-You should create a access token on your gitlab
+You should create a access token on your gitlab.
 
-## run lgtm-gitlab
+## Reviewers List (optional)
 
-### binrary
+You can define a list of gitlab users who will have permission to do LGTM. Add your reviewers in [reviewers.yaml](https://github.com/cloverstd/lgtm-gitlab/blob/master/reviewers.yaml)
+
+## Run lgtm-gitlab
+
+### Binary
 ```shell
 ./lgtm --help
   -db_path string
@@ -29,7 +33,7 @@ You should create a access token on your gitlab
     	gitlab private token which used to accept merge request. can be found in https://your.gitlab.com/profile/account
 ```
 
-### docker
+### Docker
 
 ```shell
 docker run -d --restart=always \
@@ -40,6 +44,6 @@ docker run -d --restart=always \
     cloverstd/lgtm-gitlab
 ```
 
-## comment LGTM on MR
+## Comment LGTM on MR
 
 Now you can comment a LGTM on gitlab MR, when the `lgtm_count` achieve, the MR will be merged.

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"net/http"
 	"net/url"
 	"strings"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/Sirupsen/logrus"
 	"github.com/boltdb/bolt"
+	yaml "gopkg.in/yaml.v2"
 )
 
 var (
@@ -61,6 +63,26 @@ var (
 	glURL *url.URL
 )
 
+// Conf configuration of allowed reviewers
+type Conf struct {
+	Reviewers []string `yaml:"reviewers"`
+}
+
+var reviewers Conf
+
+// Get list of reviewers that has allowed to accept a merge request
+func (c *Conf) getReviewers() *Conf {
+	yamlFile, err := ioutil.ReadFile("reviewers.yaml")
+	if err != nil {
+		return nil
+	}
+	err = yaml.Unmarshal(yamlFile, c)
+	if err != nil {
+		logrus.Fatalf("Unmarshal: %v", err)
+	}
+	return c
+}
+
 func formatLogLevel(level string) logrus.Level {
 	l, err := logrus.ParseLevel(string(level))
 	if err != nil {
@@ -89,6 +111,7 @@ func main() {
 	if *gitlabURL == "" {
 		logrus.Fatal("gitlab url is required")
 	}
+
 	var err error
 	db, err = bolt.Open(*dbPath, 0600, nil)
 	if err != nil {
@@ -160,6 +183,11 @@ func checkLgtm(comment Comment) error {
 		return nil
 	}
 
+	if !checkReviewers(comment) {
+		// unmatched, do nothing
+		return nil
+	}
+
 	if comment.ObjectAttributes.NoteableType != NoteableTypeMergeRequest {
 		// unmatched, do nothing
 		return nil
@@ -170,7 +198,7 @@ func checkLgtm(comment Comment) error {
 		return nil
 	}
 
-	// TODO: 检查评论LGTM的两个人 是不同的人
+	// TODO: Check the comments LGTM two people are different people
 	var (
 		canbeMerged bool
 		err         error
@@ -178,7 +206,7 @@ func checkLgtm(comment Comment) error {
 	logrus.WithFields(logrus.Fields{
 		"user": comment.User.Username,
 		"note": comment.ObjectAttributes.Note,
-		"MR":   comment.MergeRequest.ID,
+		"MR":   comment.MergeRequest.Iid,
 	}).Info("comment")
 
 	canbeMerged, err = checkLGTMCount(comment)
@@ -187,19 +215,34 @@ func checkLgtm(comment Comment) error {
 		logrus.WithError(err).Errorln("check LGTM count failed")
 		return nil
 	}
+
 	if canbeMerged && comment.MergeRequest.MergeStatus == StatusCanbeMerged {
-		logrus.WithField("MR", comment.MergeRequest.ID).Info("The MR can be merged.")
-		acceptMergeRequest(comment.ProjectID, comment.MergeRequest.ID, comment.MergeRequest.MergeParams.ForceRemoveSourceBranch)
+		logrus.WithField("MR", comment.MergeRequest.Iid).Info("The MR can be merged.")
+		acceptMergeRequest(comment.ProjectID, comment.MergeRequest.Iid, comment.MergeRequest.MergeParams.ForceRemoveSourceBranch)
 	} else {
 		logrus.WithFields(logrus.Fields{
-			"MR":          comment.MergeRequest.ID,
+			"MR":          comment.MergeRequest.Iid,
 			"canbeMerged": canbeMerged,
 			"MergeStatus": comment.MergeRequest.MergeStatus,
 		}).Info("The MR can not be merged.")
-
 	}
-
 	return nil
+}
+
+// Check if users that send LGTM message has permission to do it.
+func checkReviewers(comment Comment) bool {
+	// If not exist a reviewers list or is empty, do nothing
+	if reviewers.getReviewers() == nil || len(reviewers.Reviewers) == 0 {
+		return true
+	}
+	// Check if the user is a reviewer
+	for i := range reviewers.Reviewers {
+		if reviewers.Reviewers[i] == comment.User.Username {
+			return true
+		}
+	}
+	logrus.Warn("User ", comment.User.Username, " is not allowed to do LGTM")
+	return false
 }
 
 func checkLGTMCount(comment Comment) (bool, error) {
@@ -215,7 +258,7 @@ func checkLGTMCount(comment Comment) (bool, error) {
 		return false, err
 	}
 	count := 0
-	countKey := []byte(strconv.Itoa(comment.MergeRequest.ID))
+	countKey := []byte(strconv.Itoa(comment.MergeRequest.Iid))
 	countByte := bucket.Get(countKey)
 	if len(countByte) > 0 {
 		count, err = strconv.Atoi(string(countByte))
@@ -238,12 +281,12 @@ func checkLGTMCount(comment Comment) (bool, error) {
 	}
 	logrus.WithFields(logrus.Fields{
 		"count": count,
-		"MR":    comment.MergeRequest.ID,
+		"MR":    comment.MergeRequest.Iid,
 	}).Info("MR count")
 	return checkStatus, nil
 }
 
-func acceptMergeRequest(projectID int, mergeRequestID int, shouldRemoveSourceBranch string) {
+func acceptMergeRequest(projectID int, mergeRequestIID int, shouldRemoveSourceBranch string) {
 	params := map[string]string{
 		"should_remove_source_branch": shouldRemoveSourceBranch,
 	}
@@ -253,7 +296,7 @@ func acceptMergeRequest(projectID int, mergeRequestID int, shouldRemoveSourceBra
 		return
 	}
 
-	glURL.Path = fmt.Sprintf("/api/v3/projects/%d/merge_requests/%d/merge", projectID, mergeRequestID)
+	glURL.Path = fmt.Sprintf("/api/v4/projects/%d/merge_requests/%d/merge", projectID, mergeRequestIID)
 	req, err := http.NewRequest("PUT", glURL.String(), bytes.NewReader(bodyBytes))
 	if err != nil {
 		logrus.WithError(err).Errorln("http NewRequest failed")

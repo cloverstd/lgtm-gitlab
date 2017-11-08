@@ -4,3 +4,4 @@ import:
   version: ~1.3.0
 - package: github.com/Sirupsen/logrus
   version: ~1.0.0
+- package: github.com/go-yaml/yaml
