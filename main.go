@@ -459,4 +459,4 @@ type Comment struct {
 	} `json:"merge_request"`
 }
 
-// 后续支持 redis. HINCR lgtm merge_id 1
+// Follow-up support redis. HINCR lgtm merge_id 1
